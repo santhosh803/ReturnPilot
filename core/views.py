@@ -170,6 +170,11 @@ class WebhookView(APIView):
             calculated_total = Decimal("0.00")
             for item in items_data:
                 sku = item.get("sku") or item.get("product_sku")
+                if not sku:
+                    logger.warning(
+                        f"[WEBHOOK] Skipping order {order.order_id} item missing SKU: {item}"
+                    )
+                    continue
                 product_name = item.get("name") or item.get("product_name") or f"Product {sku}"
                 category = item.get("category", "accessories")
                 price = Decimal(str(item.get("price", item.get("unit_price", "19.99"))))
@@ -401,6 +406,16 @@ class AgentApproveView(APIView):
             return Response(
                 {"error": "return_id is required"},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not ReturnRequest.objects.filter(return_id__iexact=str(return_id).strip()).exists():
+            return Response(
+                {
+                    "success": False,
+                    "return_id": return_id,
+                    "error": f"Return request '{return_id}' not found",
+                },
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         # Force process refund overriding the HITL gate

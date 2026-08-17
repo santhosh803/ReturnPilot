@@ -160,7 +160,22 @@ def check_return_eligibility(order_id: str, item_skus: list[str]) -> dict:
         days_remaining = max(0, window_days - days_since_delivery)
         is_in_window = days_since_delivery <= window_days
 
-        if not is_in_window:
+        conditions_text = (policy.conditions if policy else "").lower()
+        non_returnable_markers = ("final_sale", "non_returnable", "hygiene_seal_broken", "no_returns")
+        matched_marker = next((m for m in non_returnable_markers if m in conditions_text), None)
+
+        if matched_marker:
+            all_eligible = False
+            items_checked.append({
+                "sku": sku,
+                "name": item.product.name,
+                "category": category,
+                "eligible": False,
+                "policy": policy_name,
+                "policy_condition_violated": matched_marker,
+                "reason": f"Category '{category}' policy prohibits returns for this item ({matched_marker.replace('_', ' ')}).",
+            })
+        elif not is_in_window:
             all_eligible = False
             items_checked.append({
                 "sku": sku,

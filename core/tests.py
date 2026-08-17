@@ -239,6 +239,146 @@ class CoreModelAndAPITests(TestCase):
         self.assertTrue(len(ret.exchange_recommendation) > 0)
         self.assertIn("recommendation", res_rec)
 
+    def test_webhook_rejects_invalid_secret_header(self):
+        """When SHOPIFY_WEBHOOK_SECRET is set, requests without a matching header must be rejected."""
+        import os
+        from unittest.mock import patch
+
+        payload = {
+            "topic": "orders/fulfilled",
+            "order": {
+                "order_id": "ORD-SECURED-0001",
+                "total": "25.00",
+                "status": "delivered",
+                "customer": {"email": "secured@example.com", "name": "Secured Shopper"},
+                "items": [
+                    {
+                        "sku": "TEST-SHIRT-01",
+                        "name": "Test Cotton Shirt",
+                        "category": "clothing",
+                        "price": "25.00",
+                        "quantity": 1,
+                    }
+                ],
+            },
+        }
+
+        with patch.dict(os.environ, {"SHOPIFY_WEBHOOK_SECRET": "top-secret-shared-key"}):
+            # Missing header
+            resp_missing = self.client.post(
+                "/api/webhooks/shopify/", data=payload, format="json"
+            )
+            self.assertEqual(resp_missing.status_code, status.HTTP_401_UNAUTHORIZED)
+
+            # Wrong header
+            resp_wrong = self.client.post(
+                "/api/webhooks/shopify/",
+                data=payload,
+                format="json",
+                HTTP_X_WEBHOOK_SECRET="not-the-right-secret",
+            )
+            self.assertEqual(resp_wrong.status_code, status.HTTP_401_UNAUTHORIZED)
+
+            # Correct header allows ingestion through
+            resp_ok = self.client.post(
+                "/api/webhooks/shopify/",
+                data=payload,
+                format="json",
+                HTTP_X_WEBHOOK_SECRET="top-secret-shared-key",
+            )
+            self.assertEqual(resp_ok.status_code, status.HTTP_201_CREATED)
+            self.assertTrue(Order.objects.filter(order_id="ORD-SECURED-0001").exists())
+
+    def test_agent_approve_rejects_unknown_return_id(self):
+        """Approve endpoint must return 404 for a return_id that does not exist."""
+        approve_payload = {
+            "session_id": "sess-unknown-return",
+            "return_id": "RET-DOES-NOT-EXIST-9999",
+            "decision": "approved",
+        }
+        resp = self.client.post(
+            "/api/agent/approve/", data=approve_payload, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(resp.data.get("success"))
+        self.assertIn("not found", resp.data.get("error", "").lower())
+
+    def test_check_return_eligibility_rejects_final_sale_and_hygiene(self):
+        """Policies whose conditions include final_sale/hygiene_seal_broken markers must block returns."""
+        from mcp_server import tools
+
+        # Final sale category
+        ReturnPolicy.objects.create(
+            category="clearance",
+            window_days=30,
+            conditions="unused, final_sale, no_returns",
+            restocking_fee_pct=Decimal("0.00"),
+            exchange_allowed=False,
+        )
+        clearance_product = Product.objects.create(
+            sku="CLEAR-001",
+            name="Clearance Sweater",
+            category="clearance",
+            price=Decimal("15.00"),
+            inventory_count=5,
+        )
+        clearance_order = Order.objects.create(
+            order_id="ORD-CLEAR-01",
+            customer=self.customer,
+            total=Decimal("15.00"),
+            status=Order.Status.DELIVERED,
+            order_date=timezone.now() - timezone.timedelta(days=5),
+            delivered_date=timezone.now() - timezone.timedelta(days=3),
+        )
+        OrderItem.objects.create(
+            order=clearance_order,
+            product=clearance_product,
+            quantity=1,
+            unit_price=Decimal("15.00"),
+        )
+
+        clear_res = tools.check_return_eligibility("ORD-CLEAR-01", ["CLEAR-001"])
+        self.assertFalse(clear_res["eligible"])
+        checked = clear_res["items_checked"][0]
+        self.assertFalse(checked["eligible"])
+        self.assertEqual(checked["policy_condition_violated"], "final_sale")
+        self.assertIn("prohibits", checked["reason"].lower())
+
+        # Hygiene-sealed personal-care category
+        ReturnPolicy.objects.create(
+            category="personal_care",
+            window_days=30,
+            conditions="sealed, hygiene_seal_broken",
+            restocking_fee_pct=Decimal("0.00"),
+            exchange_allowed=False,
+        )
+        hygiene_product = Product.objects.create(
+            sku="HYG-001",
+            name="Sealed Personal Care Item",
+            category="personal_care",
+            price=Decimal("22.00"),
+            inventory_count=10,
+        )
+        hygiene_order = Order.objects.create(
+            order_id="ORD-HYG-01",
+            customer=self.customer,
+            total=Decimal("22.00"),
+            status=Order.Status.DELIVERED,
+            order_date=timezone.now() - timezone.timedelta(days=4),
+            delivered_date=timezone.now() - timezone.timedelta(days=2),
+        )
+        OrderItem.objects.create(
+            order=hygiene_order,
+            product=hygiene_product,
+            quantity=1,
+            unit_price=Decimal("22.00"),
+        )
+
+        hygiene_res = tools.check_return_eligibility("ORD-HYG-01", ["HYG-001"])
+        self.assertFalse(hygiene_res["eligible"])
+        hchecked = hygiene_res["items_checked"][0]
+        self.assertEqual(hchecked["policy_condition_violated"], "hygiene_seal_broken")
+
     def test_agent_chat_and_hitl_endpoints(self):
         # 1. Chat endpoint invocation
         chat_payload = {
@@ -255,7 +395,17 @@ class CoreModelAndAPITests(TestCase):
         sess_resp = self.client.get("/api/agent/sessions/")
         self.assertEqual(sess_resp.status_code, status.HTTP_200_OK)
 
-        # 3. Approve endpoint invocation
+        # 3. Approve endpoint invocation — first create the return so the approve target exists
+        pending_return = ReturnRequest.objects.create(
+            return_id="RET-TEST-0001",
+            order=self.order,
+            reason_text="Size was too small",
+            reason_classified=ReturnRequest.Reason.SIZING,
+            status=ReturnRequest.Status.AWAITING_APPROVAL,
+            refund_amount=Decimal("49.99"),
+        )
+        pending_return.items.add(self.order_item)
+
         approve_payload = {
             "session_id": "test-session-123",
             "return_id": "RET-TEST-0001",
