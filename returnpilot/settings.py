@@ -1,4 +1,6 @@
 import os
+import sys
+import tempfile
 from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
@@ -15,9 +17,15 @@ SECRET_KEY = os.getenv(
     "django-insecure-returnpilot-default-secret-key-change-in-production",
 )
 
-DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes", "t")
+# Production Railway detection
+IS_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_STATIC_URL"))
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
+if IS_RAILWAY:
+    DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes", "t")
+    ALLOWED_HOSTS = ["*"]
+else:
+    DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes", "t")
+    ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
 
 # Application definition
@@ -51,10 +59,15 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "returnpilot.urls"
 
+FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],
+        "DIRS": [
+            BASE_DIR / "templates",
+            FRONTEND_DIST,
+        ],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -69,8 +82,6 @@ TEMPLATES = [
 WSGI_APPLICATION = "returnpilot.wsgi.application"
 ASGI_APPLICATION = "returnpilot.asgi.application"
 
-
-import sys
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -126,6 +137,10 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+STATICFILES_DIRS = []
+if (FRONTEND_DIST / "assets").exists():
+    STATICFILES_DIRS.append(FRONTEND_DIST / "assets")
+
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -133,7 +148,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
-CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ALLOW_ALL_ORIGINS = DEBUG or IS_RAILWAY
 
 # Django REST Framework
 REST_FRAMEWORK = {
@@ -161,14 +176,24 @@ if "test" in sys.argv:
     CELERY_TASK_EAGER_PROPAGATES = True
 
 # Google Cloud / Vertex AI Settings
-GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-if GOOGLE_APPLICATION_CREDENTIALS:
-    cred_path = Path(GOOGLE_APPLICATION_CREDENTIALS)
-    if not cred_path.is_absolute():
-        cred_path = (BASE_DIR / cred_path).resolve()
-    if cred_path.exists():
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(cred_path)
+GCP_CREDENTIALS_JSON = os.getenv("GCP_CREDENTIALS_JSON")
+if GCP_CREDENTIALS_JSON:
+    try:
+        temp_cred = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json")
+        temp_cred.write(GCP_CREDENTIALS_JSON)
+        temp_cred.flush()
+        temp_cred.close()
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_cred.name
+    except Exception as e:
+        print(f"Warning: Failed writing GCP_CREDENTIALS_JSON: {e}")
+else:
+    GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if GOOGLE_APPLICATION_CREDENTIALS:
+        cred_path = Path(GOOGLE_APPLICATION_CREDENTIALS)
+        if not cred_path.is_absolute():
+            cred_path = (BASE_DIR / cred_path).resolve()
+        if cred_path.exists():
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(cred_path)
 
 GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "ai-projects-500402")
 GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-
