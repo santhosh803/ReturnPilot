@@ -70,9 +70,18 @@ WSGI_APPLICATION = "returnpilot.wsgi.application"
 ASGI_APPLICATION = "returnpilot.asgi.application"
 
 
+import sys
+
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL:
+if "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+elif DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
