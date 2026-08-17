@@ -1,0 +1,43 @@
+# Plan reference
+ReturnPilot_Implementation_Plan.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Environment & Secrets
+.env
+gcp-key.json
+*.pem
+*.key
+
+# Django
+db.sqlite3
+staticfiles/
+media/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
