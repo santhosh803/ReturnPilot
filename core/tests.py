@@ -157,3 +157,52 @@ class CoreModelAndAPITests(TestCase):
         self.assertIn("total_orders", response.data)
         self.assertIn("total_returns", response.data)
         self.assertIn("return_rate_percentage", response.data)
+
+    def test_mcp_tools_suite(self):
+        from mcp_server import tools
+
+        # 1. lookup_order
+        lookup_res = tools.lookup_order("ORD-TEST-0001")
+        self.assertEqual(lookup_res["order"]["order_id"], "ORD-TEST-0001")
+        self.assertEqual(len(lookup_res["items"]), 1)
+        self.assertEqual(lookup_res["customer"]["email"], "testcustomer@example.com")
+
+        # 2. check_return_eligibility
+        elig_res = tools.check_return_eligibility("ORD-TEST-0001", ["TEST-SHIRT-01"])
+        self.assertTrue(elig_res["eligible"])
+        self.assertEqual(len(elig_res["items_checked"]), 1)
+
+        # 3. initiate_return
+        init_res = tools.initiate_return(
+            "ORD-TEST-0001",
+            ["TEST-SHIRT-01"],
+            "The shirt was too tight and small",
+        )
+        self.assertIn("return_id", init_res)
+        self.assertEqual(init_res["ai_classification"], "sizing")
+        created_ret_id = init_res["return_id"]
+
+        # 4. classify_return_reason
+        class_res = tools.classify_return_reason(created_ret_id)
+        self.assertEqual(class_res["classified_as"], "sizing")
+        self.assertEqual(class_res["confidence"], 0.94)
+
+        # 5. recommend_exchange
+        rec_res = tools.recommend_exchange(created_ret_id)
+        self.assertEqual(rec_res["return_id"], created_ret_id)
+        self.assertIn("recommendations", rec_res)
+
+        # 6. flag_serial_returner
+        flag_res = tools.flag_serial_returner("testcustomer@example.com")
+        self.assertEqual(flag_res["customer"]["email"], "testcustomer@example.com")
+        self.assertEqual(flag_res["risk_level"], "low")
+
+        # 7. process_refund (standard low value auto approve)
+        refund_res = tools.process_refund(created_ret_id, "approved")
+        self.assertFalse(refund_res["hitl_triggered"])
+        self.assertEqual(refund_res["status"], "approved")
+
+        # 8. list_pending_returns
+        list_res = tools.list_pending_returns("approved")
+        self.assertTrue(list_res["count"] >= 1)
+

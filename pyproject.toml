@@ -12,6 +12,7 @@ dependencies = [
     "djangorestframework>=3.18.0",
     "faker>=40.36.0",
     "gunicorn>=26.0.0",
+    "mcp>=2.0.0",
     "psycopg2-binary>=2.9.12",
     "python-dotenv>=1.2.3",
     "whitenoise>=6.12.0",
