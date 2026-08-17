@@ -21,6 +21,7 @@ from .models import (
     ReturnPolicy,
     ReturnRequest,
     RefundLedger,
+    AgentSession,
 )
 from .serializers import (
     ProductSerializer,
@@ -29,6 +30,7 @@ from .serializers import (
     ReturnPolicySerializer,
     ReturnRequestSerializer,
     RefundLedgerSerializer,
+    AgentSessionSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -258,3 +260,180 @@ class AnalyticsView(APIView):
                 "returns_by_reason": list(reason_counts),
             }
         )
+
+
+class AgentSessionViewSet(viewsets.ModelViewSet):
+    queryset = AgentSession.objects.all()
+    serializer_class = AgentSessionSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    lookup_field = "session_id"
+
+
+class AgentChatView(APIView):
+    """
+    Chat endpoint for the ReturnPilot LangGraph ReAct agent.
+    Accepts POST with message and optional session_id.
+    Returns agent execution response with reasoning steps and HITL state.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        import uuid
+        from django.http import StreamingHttpResponse
+        from langchain_core.messages import HumanMessage
+        from agent.graph import agent_app
+
+        message_text = request.data.get("message", "").strip()
+        session_id = request.data.get("session_id") or f"sess_{uuid.uuid4().hex[:12]}"
+        stream_mode = request.data.get("stream", False) or request.query_params.get("stream") == "true"
+
+        if not message_text:
+            return Response(
+                {"error": "message is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get or create session
+        session, _ = AgentSession.objects.get_or_create(
+            session_id=session_id,
+            defaults={
+                "title": message_text[:50] + ("..." if len(message_text) > 50 else ""),
+                "messages": [],
+            },
+        )
+
+        initial_state = {
+            "messages": [HumanMessage(content=message_text)],
+            "intermediate_steps": [],
+            "hitl_pending": False,
+            "hitl_details": None,
+            "session_id": session_id,
+        }
+
+        config = {"configurable": {"thread_id": session_id}}
+
+        try:
+            result_state = agent_app.invoke(initial_state, config=config)
+        except Exception as e:
+            logger.error(f"Error executing agent graph: {e}")
+            result_state = {
+                "messages": [HumanMessage(content=message_text)],
+                "intermediate_steps": [],
+                "hitl_pending": False,
+                "hitl_details": None,
+            }
+
+        # Extract final answer
+        final_answer = ""
+        msgs = result_state.get("messages", [])
+        for m in reversed(msgs):
+            if hasattr(m, "content") and m.content and not getattr(m, "tool_calls", None):
+                final_answer = m.content
+                break
+
+        if not final_answer and msgs:
+            final_answer = msgs[-1].content if hasattr(msgs[-1], "content") else str(msgs[-1])
+
+        steps = result_state.get("intermediate_steps", [])
+        hitl_pending = result_state.get("hitl_pending", False)
+        hitl_details = result_state.get("hitl_details")
+
+        # Save to session
+        existing_history = list(session.messages)
+        existing_history.append({"role": "user", "content": message_text, "timestamp": timezone.now().isoformat()})
+        existing_history.append({
+            "role": "assistant",
+            "content": final_answer,
+            "steps": steps,
+            "hitl_pending": hitl_pending,
+            "hitl_details": hitl_details,
+            "timestamp": timezone.now().isoformat(),
+        })
+
+        session.messages = existing_history
+        session.hitl_pending = hitl_pending
+        session.hitl_data = hitl_details or {}
+        session.save()
+
+        response_data = {
+            "session_id": session_id,
+            "response": final_answer,
+            "steps": steps,
+            "hitl_pending": hitl_pending,
+            "hitl_details": hitl_details,
+        }
+
+        if stream_mode:
+            def event_stream():
+                for step in steps:
+                    chunk = json.dumps({"type": "tool_step", "step": step})
+                    yield f"data: {chunk}\n\n"
+                final_chunk = json.dumps({
+                    "type": "final_response",
+                    "session_id": session_id,
+                    "response": final_answer,
+                    "hitl_pending": hitl_pending,
+                    "hitl_details": hitl_details,
+                })
+                yield f"data: {final_chunk}\n\n"
+
+            return StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+class AgentApproveView(APIView):
+    """
+    Endpoint for merchant Human-In-The-Loop approval or rejection of flagged return refunds.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        from mcp_server.tools import process_refund
+
+        session_id = request.data.get("session_id")
+        return_id = request.data.get("return_id")
+        decision = request.data.get("decision", "approved").lower()
+        method = request.data.get("method", "original_payment")
+        reason = request.data.get("reason", f"Merchant HITL manual decision: {decision}")
+
+        if not return_id:
+            return Response(
+                {"error": "return_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Force process refund overriding the HITL gate
+        decision_code = "override_force_approve" if decision == "approved" else "rejected"
+        result = process_refund(
+            return_id=return_id,
+            decision=decision_code,
+            method=method,
+            reason=reason,
+        )
+
+        # Update session if session_id provided
+        if session_id:
+            session = AgentSession.objects.filter(session_id=session_id).first()
+            if session:
+                session.hitl_pending = False
+                existing_msgs = list(session.messages)
+                existing_msgs.append({
+                    "role": "assistant",
+                    "content": f"Merchant has **{decision.upper()}** return `{return_id}`. Refund processed.",
+                    "hitl_resolution": result,
+                    "timestamp": timezone.now().isoformat(),
+                })
+                session.messages = existing_msgs
+                session.save()
+
+        return Response(
+            {
+                "success": True,
+                "return_id": return_id,
+                "decision": decision,
+                "result": result,
+            },
+            status=status.HTTP_200_OK,
+        )
+

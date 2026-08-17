@@ -7,6 +7,7 @@ from .models import (
     ReturnPolicy,
     ReturnRequest,
     RefundLedger,
+    AgentSession,
 )
 
 
@@ -160,3 +161,18 @@ class ReturnRequestSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "items": {"write_only": False},
         }
+
+
+class AgentSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AgentSession
+        fields = [
+            "id",
+            "session_id",
+            "title",
+            "messages",
+            "hitl_pending",
+            "hitl_data",
+            "created_at",
+            "updated_at",
+        ]

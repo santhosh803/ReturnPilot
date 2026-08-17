@@ -239,4 +239,33 @@ class CoreModelAndAPITests(TestCase):
         self.assertTrue(len(ret.exchange_recommendation) > 0)
         self.assertIn("recommendation", res_rec)
 
+    def test_agent_chat_and_hitl_endpoints(self):
+        # 1. Chat endpoint invocation
+        chat_payload = {
+            "message": "Process the return for order ORD-TEST-0001 because the size was too small",
+            "session_id": "test-session-123",
+        }
+        chat_resp = self.client.post("/api/agent/chat/", data=chat_payload, format="json")
+        self.assertEqual(chat_resp.status_code, status.HTTP_200_OK)
+        self.assertIn("session_id", chat_resp.data)
+        self.assertIn("response", chat_resp.data)
+        self.assertTrue(len(chat_resp.data["steps"]) >= 1)
+
+        # 2. Session list endpoint
+        sess_resp = self.client.get("/api/agent/sessions/")
+        self.assertEqual(sess_resp.status_code, status.HTTP_200_OK)
+
+        # 3. Approve endpoint invocation
+        approve_payload = {
+            "session_id": "test-session-123",
+            "return_id": "RET-TEST-0001",
+            "decision": "approved",
+            "method": "original_payment",
+            "reason": "Merchant approved manually in test",
+        }
+        appr_resp = self.client.post("/api/agent/approve/", data=approve_payload, format="json")
+        self.assertEqual(appr_resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(appr_resp.data["success"])
+
+
 

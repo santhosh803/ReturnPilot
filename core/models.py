@@ -133,3 +133,20 @@ class RefundLedger(models.Model):
 
     def __str__(self):
         return f"Refund {self.decision} — ${self.amount} for {self.return_request.return_id}"
+
+
+class AgentSession(models.Model):
+    session_id = models.CharField(max_length=100, unique=True, default=uuid.uuid4)
+    title = models.CharField(max_length=255, default="Returns Assistance")
+    messages = models.JSONField(default=list, blank=True)
+    hitl_pending = models.BooleanField(default=False)
+    hitl_data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"Session {self.session_id} ({self.title})"
+

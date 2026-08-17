@@ -10,6 +10,7 @@ from .models import (
     ReturnPolicy,
     ReturnRequest,
     RefundLedger,
+    AgentSession,
 )
 
 
@@ -269,3 +270,18 @@ class RefundLedgerAdmin(admin.ModelAdmin):
             color,
             obj.decision.capitalize(),
         )
+
+
+@admin.register(AgentSession)
+class AgentSessionAdmin(admin.ModelAdmin):
+    list_display = [
+        "session_id",
+        "title",
+        "hitl_pending",
+        "updated_at",
+        "created_at",
+    ]
+    list_filter = ["hitl_pending", "created_at"]
+    search_fields = ["session_id", "title"]
+    readonly_fields = ["created_at", "updated_at"]
+
