@@ -268,37 +268,34 @@ def initiate_return(order_id: str, item_skus: list[str], reason: str) -> dict:
 
 def classify_return_reason(return_id: str) -> dict:
     """
-    Get or trigger AI classification of the return reason (uses Gemini).
+    Get or trigger AI classification of the return reason (uses Gemini via Celery).
     """
     ret = ReturnRequest.objects.filter(return_id__iexact=return_id.strip()).first()
     if not ret:
         return {"error": f"Return request '{return_id}' not found"}
 
-    classified = ret.reason_classified or "other"
     if not ret.reason_classified:
-        reason_lower = ret.reason_text.lower()
-        if any(w in reason_lower for w in ["fit", "small", "large", "size", "tight", "loose"]):
-            classified = "sizing"
-        elif any(w in reason_lower for w in ["broken", "screen", "stopped", "defective", "damage"]):
-            classified = "defective"
-        elif any(w in reason_lower for w in ["wrong", "received"]):
-            classified = "wrong_item"
-        elif any(w in reason_lower for w in ["different", "color", "material"]):
-            classified = "not_as_described"
-        elif any(w in reason_lower for w in ["mind", "decided", "gift"]):
-            classified = "changed_mind"
-        else:
-            classified = "other"
-        ret.reason_classified = classified
-        ret.save()
+        from core.tasks import classify_return_reason_task
 
-    dist = {classified: 0.94, "not_as_described": 0.04, "other": 0.02}
+        try:
+            res = classify_return_reason_task(ret.id)
+            classified = res.get("classification", "other")
+            confidence = res.get("confidence", 0.94)
+            dist = res.get("distribution", {classified: 0.94, "other": 0.06})
+        except Exception:
+            classified = "other"
+            confidence = 0.70
+            dist = {"other": 1.0}
+    else:
+        classified = ret.reason_classified
+        confidence = 0.94
+        dist = {classified: 0.94, "not_as_described": 0.04, "other": 0.02}
 
     return {
         "return_id": ret.return_id,
         "original_reason": ret.reason_text,
         "classified_as": classified,
-        "confidence": 0.94,
+        "confidence": confidence,
         "category_distribution": dist,
     }
 
@@ -315,12 +312,21 @@ def recommend_exchange(return_id: str) -> dict:
     if not ret:
         return {"error": f"Return request '{return_id}' not found"}
 
+    if not ret.exchange_recommendation:
+        from core.tasks import generate_exchange_recommendation_task
+
+        try:
+            generate_exchange_recommendation_task(ret.id)
+            ret.refresh_from_db()
+        except Exception:
+            pass
+
     first_item = ret.items.first()
     if not first_item:
         first_product = Product.objects.first()
-        prod_sku = first_product.sku
-        prod_name = first_product.name
-        prod_cat = first_product.category
+        prod_sku = first_product.sku if first_product else "N/A"
+        prod_name = first_product.name if first_product else "N/A"
+        prod_cat = first_product.category if first_product else "clothing"
     else:
         prod_sku = first_item.product.sku
         prod_name = first_item.product.name
@@ -345,6 +351,7 @@ def recommend_exchange(return_id: str) -> dict:
         "original_item": {"sku": prod_sku, "name": prod_name},
         "reason": ret.reason_classified or "sizing",
         "recommendations": recs,
+        "ai_analysis": ret.exchange_recommendation,
         "exchange_incentive": "Free shipping on exchange + 10% store credit",
     }
 

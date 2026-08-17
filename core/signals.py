@@ -2,6 +2,7 @@ import logging
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import ReturnRequest
+from .tasks import classify_return_reason_task
 
 logger = logging.getLogger(__name__)
 
@@ -12,5 +13,10 @@ def handle_return_request_created(sender, instance, created, **kwargs):
         logger.info(
             f"[SIGNAL] New ReturnRequest created: {instance.return_id} for Order {instance.order.order_id}"
         )
-        # Note: In Phase 4, async Celery tasks for Gemini classification
-        # and exchange recommendation will be triggered from here.
+        try:
+            classify_return_reason_task.delay(instance.id)
+        except Exception as e:
+            logger.warning(
+                f"[SIGNAL] Celery task dispatch failed ({e}). Running synchronously fallback."
+            )
+            classify_return_reason_task(instance.id)

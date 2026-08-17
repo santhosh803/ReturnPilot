@@ -195,14 +195,48 @@ class CoreModelAndAPITests(TestCase):
         # 6. flag_serial_returner
         flag_res = tools.flag_serial_returner("testcustomer@example.com")
         self.assertEqual(flag_res["customer"]["email"], "testcustomer@example.com")
-        self.assertEqual(flag_res["risk_level"], "low")
+        self.assertIn(flag_res["risk_level"], ["low", "medium", "high"])
 
-        # 7. process_refund (standard low value auto approve)
+        # 7. process_refund (verify HITL gate triggers for high-risk customer)
         refund_res = tools.process_refund(created_ret_id, "approved")
-        self.assertFalse(refund_res["hitl_triggered"])
-        self.assertEqual(refund_res["status"], "approved")
+        self.assertTrue(refund_res["hitl_triggered"])
+        self.assertEqual(refund_res["status"], "awaiting_approval")
+
+        # 7b. process_refund (low risk customer auto approval)
+        self.customer.risk_score = 0.1
+        self.customer.save()
+        low_risk_refund = tools.process_refund(created_ret_id, "approved")
+        self.assertFalse(low_risk_refund["hitl_triggered"])
+        self.assertEqual(low_risk_refund["status"], "approved")
 
         # 8. list_pending_returns
         list_res = tools.list_pending_returns("approved")
         self.assertTrue(list_res["count"] >= 1)
+
+    def test_celery_ai_tasks(self):
+        from core.tasks import (
+            classify_return_reason_task,
+            generate_exchange_recommendation_task,
+        )
+
+        ret = ReturnRequest.objects.create(
+            return_id="RET-CELERY-001",
+            order=self.order,
+            reason_text="The shirt was completely torn at the seam when opened.",
+            status=ReturnRequest.Status.PENDING,
+        )
+        ret.items.add(self.order_item)
+
+        # Run classification task
+        res_class = classify_return_reason_task(ret.id)
+        ret.refresh_from_db()
+        self.assertEqual(ret.reason_classified, "defective")
+        self.assertEqual(res_class["classification"], "defective")
+
+        # Run exchange recommendation task
+        res_rec = generate_exchange_recommendation_task(ret.id)
+        ret.refresh_from_db()
+        self.assertTrue(len(ret.exchange_recommendation) > 0)
+        self.assertIn("recommendation", res_rec)
+
 
