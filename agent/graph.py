@@ -26,7 +26,8 @@ def _build_checkpointer():
       long-lived process; note a container with an ephemeral disk still loses the file
       when the container is replaced.
     - ``postgres``: durable and multi-process, using LANGGRAPH_POSTGRES_URL or
-      DATABASE_URL. Requires the optional deps: ``uv add langgraph-checkpoint-postgres``.
+      DATABASE_URL. This is the recommended backend for Railway (ephemeral disk,
+      multiple processes). Verified against live Postgres.
 
     Any import or connection failure degrades gracefully to MemorySaver so the agent
     keeps working rather than failing to boot.
@@ -55,6 +56,8 @@ def _build_checkpointer():
 
     if backend == "postgres":
         try:
+            from psycopg import Connection
+            from psycopg.rows import dict_row
             from langgraph.checkpoint.postgres import PostgresSaver
 
             conn_string = os.getenv("LANGGRAPH_POSTGRES_URL") or os.getenv("DATABASE_URL")
@@ -62,16 +65,26 @@ def _build_checkpointer():
                 raise RuntimeError(
                     "postgres checkpointer requires LANGGRAPH_POSTGRES_URL or DATABASE_URL"
                 )
-            # from_conn_string yields a context manager; enter it and keep the
-            # connection open for the lifetime of the process (singleton saver).
-            saver = PostgresSaver.from_conn_string(conn_string).__enter__()
+            # Open a long-lived connection directly (the same configuration
+            # PostgresSaver.from_conn_string uses internally). We deliberately do NOT
+            # use from_conn_string here: it is a context manager, and holding only its
+            # yielded saver lets the manager be garbage-collected, which closes the
+            # connection out from under us. A directly-owned connection lives for the
+            # process lifetime.
+            conn = Connection.connect(
+                conn_string,
+                autocommit=True,
+                prepare_threshold=0,
+                row_factory=dict_row,
+            )
+            saver = PostgresSaver(conn)
             saver.setup()
             logger.info("LangGraph checkpointer: postgres")
             return saver
         except Exception as e:
             logger.warning(
                 "postgres checkpointer unavailable (%s); falling back to MemorySaver. "
-                "Install with: uv add langgraph-checkpoint-postgres",
+                "Install with: uv add langgraph-checkpoint-postgres psycopg[binary]",
                 e,
             )
             return MemorySaver()

@@ -224,8 +224,11 @@ langgraph==1.2.11
 langgraph-checkpoint==4.2.0
     # via
     #   langgraph
+    #   langgraph-checkpoint-postgres
     #   langgraph-checkpoint-sqlite
     #   langgraph-prebuilt
+langgraph-checkpoint-postgres==3.1.2
+    # via returnpilot
 langgraph-checkpoint-sqlite==3.1.1
     # via returnpilot
 langgraph-prebuilt==1.1.0
@@ -252,6 +255,7 @@ opentelemetry-api==1.44.0
     # via mcp
 orjson==3.12.0
     # via
+    #   langgraph-checkpoint-postgres
     #   langgraph-sdk
     #   langsmith
 ormsgpack==1.12.2
@@ -282,6 +286,14 @@ protobuf==6.33.6
     #   grpc-google-iam-v1
     #   grpcio-status
     #   proto-plus
+psycopg==3.3.4
+    # via
+    #   langgraph-checkpoint-postgres
+    #   returnpilot
+psycopg-binary==3.3.4 ; implementation_name != 'pypy'
+    # via psycopg
+psycopg-pool==3.3.1
+    # via langgraph-checkpoint-postgres
 psycopg2-binary==2.9.12
     # via returnpilot
 pyarrow==23.0.1
@@ -378,6 +390,8 @@ typing-extensions==4.16.0
     #   mcp
     #   mcp-types
     #   opentelemetry-api
+    #   psycopg
+    #   psycopg-pool
     #   pydantic
     #   pydantic-core
     #   referencing
@@ -392,6 +406,7 @@ tzdata==2026.3
     #   django
     #   faker
     #   kombu
+    #   psycopg
     #   tzlocal
 tzlocal==5.4.4
     # via celery
