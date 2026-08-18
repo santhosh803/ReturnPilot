@@ -328,16 +328,34 @@ class AgentChatView(APIView):
                 "hitl_details": None,
             }
 
-        # Extract final answer
+        # Extract final answer — normalize Gemini's structured content into plain text.
+        # Recent Vertex/Google GenAI responses return content as a list of {text, thought_signature}
+        # dicts rather than a plain string, which serializes as raw JSON in the UI.
+        def _flatten(content):
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts = []
+                for chunk in content:
+                    if isinstance(chunk, dict):
+                        text = chunk.get("text") or chunk.get("content")
+                        if text:
+                            parts.append(text)
+                    elif isinstance(chunk, str):
+                        parts.append(chunk)
+                return "".join(parts).strip()
+            return str(content) if content is not None else ""
+
         final_answer = ""
         msgs = result_state.get("messages", [])
         for m in reversed(msgs):
             if hasattr(m, "content") and m.content and not getattr(m, "tool_calls", None):
-                final_answer = m.content
-                break
+                final_answer = _flatten(m.content)
+                if final_answer:
+                    break
 
         if not final_answer and msgs:
-            final_answer = msgs[-1].content if hasattr(msgs[-1], "content") else str(msgs[-1])
+            final_answer = _flatten(getattr(msgs[-1], "content", str(msgs[-1])))
 
         steps = result_state.get("intermediate_steps", [])
         hitl_pending = result_state.get("hitl_pending", False)

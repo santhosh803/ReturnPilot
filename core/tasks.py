@@ -12,16 +12,17 @@ logger = logging.getLogger(__name__)
 
 def _get_vertex_llm(model_name: str = "gemini-2.5-flash", temperature: float = 0.2):
     try:
-        from langchain_google_vertexai import ChatVertexAI
+        from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatVertexAI(
-            model_name=model_name,
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            vertexai=True,
             project=getattr(settings, "GOOGLE_CLOUD_PROJECT", "ai-projects-500402"),
             location=getattr(settings, "GOOGLE_CLOUD_LOCATION", "us-central1"),
             temperature=temperature,
         )
     except Exception as e:
-        logger.warning(f"Could not initialize ChatVertexAI: {e}")
+        logger.warning(f"Could not initialize Gemini chat model: {e}")
         return None
 
 

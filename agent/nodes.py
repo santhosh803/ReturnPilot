@@ -26,10 +26,11 @@ class AgentState(TypedDict):
 
 def get_agent_llm():
     try:
-        from langchain_google_vertexai import ChatVertexAI
+        from langchain_google_genai import ChatGoogleGenerativeAI
 
-        llm = ChatVertexAI(
-            model_name="gemini-2.5-flash",
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            vertexai=True,
             project=getattr(settings, "GOOGLE_CLOUD_PROJECT", "ai-projects-500402"),
             location=getattr(settings, "GOOGLE_CLOUD_LOCATION", "us-central1"),
             temperature=0.1,
@@ -37,7 +38,7 @@ def get_agent_llm():
         tools = get_agent_tools()
         return llm.bind_tools(tools)
     except Exception as e:
-        logger.warning(f"Could not bind ChatVertexAI: {e}")
+        logger.warning(f"Could not bind Gemini chat model: {e}")
         return None
 
 
