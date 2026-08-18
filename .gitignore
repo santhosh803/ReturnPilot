@@ -1,5 +1,7 @@
-# Plan reference
+# Plan reference / handover (never commit)
 ReturnPilot_Implementation_Plan.md
+PROJECT_STATUS.md
+returnpilot_handover_report.md
 
 # Python
 __pycache__/
@@ -23,6 +25,11 @@ gcp-key.json
 db.sqlite3
 staticfiles/
 media/
+
+# LangGraph durable checkpointer (sqlite backend)
+agent_checkpoints.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Node / Frontend
 frontend/node_modules/

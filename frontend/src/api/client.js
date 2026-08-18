@@ -7,6 +7,32 @@ const api = axios.create({
   },
 });
 
+// Attach a DRF auth token when one is stored. The backend only enforces auth when
+// REQUIRE_API_AUTH is set; when it isn't, an absent token is harmless.
+export const setAuthToken = (token) => {
+  if (token) {
+    localStorage.setItem("rp_token", token);
+  } else {
+    localStorage.removeItem("rp_token");
+  }
+};
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("rp_token");
+  if (token) {
+    config.headers.Authorization = `Token ${token}`;
+  }
+  return config;
+});
+
+export const login = async (username, password) => {
+  const res = await api.post("/auth/token/", { username, password });
+  if (res.data?.token) {
+    setAuthToken(res.data.token);
+  }
+  return res.data;
+};
+
 export const getAnalytics = async () => {
   const res = await api.get("/analytics/");
   return res.data;

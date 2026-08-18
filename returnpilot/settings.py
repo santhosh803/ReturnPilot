@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Third-party apps
     "rest_framework",
+    "rest_framework.authtoken",
     "corsheaders",
     "django_filters",
     # Local apps
@@ -142,21 +143,57 @@ if (FRONTEND_DIST / "assets").exists():
     STATICFILES_DIRS.append(FRONTEND_DIST / "assets")
 
 # CORS configuration
+#
+# Local dev (DEBUG) allows all origins for convenience. In production the browser
+# origins that may call the API must be listed explicitly — either via the built-in
+# localhost defaults or the CORS_ALLOWED_ORIGINS env var (comma-separated). We no
+# longer open CORS wide just because we are on Railway.
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
-CORS_ALLOW_ALL_ORIGINS = DEBUG or IS_RAILWAY
+_extra_cors = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+if _extra_cors:
+    CORS_ALLOWED_ORIGINS += [o.strip() for o in _extra_cors.split(",") if o.strip()]
+
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+
+# Trust the same explicit origins for CSRF (needed for session-authenticated POSTs
+# from the SPA when served cross-origin, e.g. behind a Railway domain).
+CSRF_TRUSTED_ORIGINS = [
+    o for o in CORS_ALLOWED_ORIGINS if o.startswith("http://") or o.startswith("https://")
+]
+_railway_static_url = os.getenv("RAILWAY_STATIC_URL")
+if _railway_static_url:
+    origin = _railway_static_url if "://" in _railway_static_url else f"https://{_railway_static_url}"
+    CSRF_TRUSTED_ORIGINS.append(origin)
 
 # Django REST Framework
+#
+# Authentication is opt-in: set REQUIRE_API_AUTH=True to require a valid token (or an
+# authenticated session) on every endpoint that doesn't override its own permissions.
+# Left off, the API stays AllowAny — matching the historical closed-environment posture
+# and keeping the test suite / local dev friction-free.
+REQUIRE_API_AUTH = os.getenv("REQUIRE_API_AUTH", "False").lower() in ("true", "1", "yes", "t")
+_default_permission = (
+    "rest_framework.permissions.IsAuthenticated"
+    if REQUIRE_API_AUTH
+    else "rest_framework.permissions.AllowAny"
+)
+
 REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [_default_permission],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
 }

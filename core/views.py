@@ -1,3 +1,4 @@
+import base64
 import hmac
 import hashlib
 import json
@@ -108,21 +109,53 @@ class WebhookView(APIView):
     """
     Mock Shopify / eCommerce order webhook endpoint.
     Accepts POST requests with order events like `orders/fulfilled` or `orders/create`.
-    Validates shared secret if configured via SHOPIFY_WEBHOOK_SECRET env var.
+
+    Authenticated via the shared secret in SHOPIFY_WEBHOOK_SECRET when set. External
+    senders cannot present a DRF token, so this endpoint stays AllowAny at the DRF layer
+    and is instead gated by request-signature verification (see ``_verify_signature``).
     """
     permission_classes = [AllowAny]
 
+    @staticmethod
+    def _verify_signature(request, raw_body):
+        """
+        Return True when the request is authorized.
+
+        - No secret configured → open (dev / closed environments).
+        - ``X-Shopify-Hmac-SHA256`` present → verify base64(HMAC-SHA256(secret, raw_body)),
+          the real Shopify scheme, using a constant-time compare.
+        - ``X-Webhook-Secret`` present → back-compat plain shared-secret compare
+          (also constant-time).
+        - Otherwise → reject.
+        """
+        secret = os.getenv("SHOPIFY_WEBHOOK_SECRET")
+        if not secret:
+            return True
+
+        secret_bytes = secret.encode("utf-8")
+
+        hmac_header = request.headers.get("X-Shopify-Hmac-SHA256")
+        if hmac_header:
+            digest = hmac.new(secret_bytes, raw_body, hashlib.sha256).digest()
+            expected = base64.b64encode(digest).decode("utf-8")
+            return hmac.compare_digest(expected, hmac_header)
+
+        plain_header = request.headers.get("X-Webhook-Secret")
+        if plain_header is not None:
+            return hmac.compare_digest(plain_header, secret)
+
+        return False
+
     def post(self, request, *args, **kwargs):
-        webhook_secret = os.getenv("SHOPIFY_WEBHOOK_SECRET")
-        if webhook_secret:
-            auth_header = request.headers.get("X-Webhook-Secret") or request.headers.get(
-                "X-Shopify-Hmac-SHA256"
+        # Capture the raw body before DRF parses request.data so the HMAC is
+        # computed over the exact bytes the sender signed.
+        raw_body = request.body
+
+        if not self._verify_signature(request, raw_body):
+            return Response(
+                {"error": "Invalid webhook signature"},
+                status=status.HTTP_401_UNAUTHORIZED,
             )
-            if auth_header != webhook_secret:
-                return Response(
-                    {"error": "Invalid webhook secret authorization"},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
 
         payload = request.data
         topic = payload.get("topic", "orders/fulfilled")
@@ -220,8 +253,9 @@ class WebhookView(APIView):
 class AnalyticsView(APIView):
     """
     Aggregated return metrics and analytics for the merchant dashboard.
+
+    Inherits DEFAULT_PERMISSION_CLASSES so it is gated when REQUIRE_API_AUTH is set.
     """
-    permission_classes = [AllowAny]
 
     def get(self, request, *args, **kwargs):
         total_orders = Order.objects.count()
@@ -279,8 +313,9 @@ class AgentChatView(APIView):
     Chat endpoint for the ReturnPilot LangGraph ReAct agent.
     Accepts POST with message and optional session_id.
     Returns agent execution response with reasoning steps and HITL state.
+
+    Inherits DEFAULT_PERMISSION_CLASSES so it is gated when REQUIRE_API_AUTH is set.
     """
-    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         import uuid
@@ -408,8 +443,9 @@ class AgentChatView(APIView):
 class AgentApproveView(APIView):
     """
     Endpoint for merchant Human-In-The-Loop approval or rejection of flagged return refunds.
+
+    Inherits DEFAULT_PERMISSION_CLASSES so it is gated when REQUIRE_API_AUTH is set.
     """
-    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         from mcp_server.tools import process_refund

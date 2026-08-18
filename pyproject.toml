@@ -3,7 +3,7 @@ name = "returnpilot"
 version = "0.1.0"
 description = "AI-powered eCommerce returns management platform with MCP server and LangGraph agent"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "celery>=5.6.3",
     "dj-database-url>=3.1.2",
@@ -19,6 +19,7 @@ dependencies = [
     "langchain-google-genai>=4.3.4",
     "langchain-google-vertexai>=3.2.4",
     "langgraph>=1.2.11",
+    "langgraph-checkpoint-sqlite>=3.1.1",
     "mcp>=2.0.0",
     "psycopg2-binary>=2.9.12",
     "python-dotenv>=1.2.3",

@@ -289,6 +289,60 @@ class CoreModelAndAPITests(TestCase):
             self.assertEqual(resp_ok.status_code, status.HTTP_201_CREATED)
             self.assertTrue(Order.objects.filter(order_id="ORD-SECURED-0001").exists())
 
+    def test_webhook_accepts_valid_hmac_signature(self):
+        """A correct base64 HMAC-SHA256 of the raw body must authenticate; a wrong one is 401."""
+        import os
+        import json
+        import hmac
+        import hashlib
+        import base64
+        from unittest.mock import patch
+
+        secret = "top-secret-shared-key"
+        payload = {
+            "topic": "orders/fulfilled",
+            "order": {
+                "order_id": "ORD-HMAC-0001",
+                "total": "40.00",
+                "status": "delivered",
+                "customer": {"email": "hmac@example.com", "name": "HMAC Shopper"},
+                "items": [
+                    {
+                        "sku": "TEST-SHIRT-01",
+                        "name": "Test Cotton Shirt",
+                        "category": "clothing",
+                        "price": "40.00",
+                        "quantity": 1,
+                    }
+                ],
+            },
+        }
+        # Serialize exactly as it will be sent so the signature matches the raw body.
+        raw_body = json.dumps(payload).encode("utf-8")
+        good_sig = base64.b64encode(
+            hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).digest()
+        ).decode("utf-8")
+
+        with patch.dict(os.environ, {"SHOPIFY_WEBHOOK_SECRET": secret}):
+            # Wrong HMAC → rejected
+            resp_bad = self.client.post(
+                "/api/webhooks/shopify/",
+                data=raw_body,
+                content_type="application/json",
+                HTTP_X_SHOPIFY_HMAC_SHA256="not-a-valid-signature",
+            )
+            self.assertEqual(resp_bad.status_code, status.HTTP_401_UNAUTHORIZED)
+
+            # Correct HMAC → ingested
+            resp_ok = self.client.post(
+                "/api/webhooks/shopify/",
+                data=raw_body,
+                content_type="application/json",
+                HTTP_X_SHOPIFY_HMAC_SHA256=good_sig,
+            )
+            self.assertEqual(resp_ok.status_code, status.HTTP_201_CREATED)
+            self.assertTrue(Order.objects.filter(order_id="ORD-HMAC-0001").exists())
+
     def test_agent_approve_rejects_unknown_return_id(self):
         """Approve endpoint must return 404 for a return_id that does not exist."""
         approve_payload = {
@@ -378,6 +432,43 @@ class CoreModelAndAPITests(TestCase):
         self.assertFalse(hygiene_res["eligible"])
         hchecked = hygiene_res["items_checked"][0]
         self.assertEqual(hchecked["policy_condition_violated"], "hygiene_seal_broken")
+
+    def test_api_auth_gating_and_token_flow(self):
+        """When an endpoint is gated (REQUIRE_API_AUTH), a token issued by /auth/token/ unlocks it.
+
+        DRF binds ``permission_classes`` as a class attribute at import time, so the
+        REQUIRE_API_AUTH env flag is honored at startup. We simulate the gated posture
+        here by patching the view's permission_classes, which is what that flag selects.
+        """
+        from unittest.mock import patch
+        from rest_framework.permissions import IsAuthenticated
+        from django.contrib.auth.models import User
+        from core.views import AnalyticsView
+
+        with patch.object(AnalyticsView, "permission_classes", [IsAuthenticated]):
+            # Unauthenticated request is denied.
+            denied = self.client.get("/api/analytics/")
+            self.assertIn(
+                denied.status_code,
+                (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+            )
+
+            # Token endpoint stays open and issues a token for valid credentials.
+            User.objects.create_user(username="merchant", password="s3cure-pw!")
+            tok_resp = self.client.post(
+                "/api/auth/token/",
+                data={"username": "merchant", "password": "s3cure-pw!"},
+                format="json",
+            )
+            self.assertEqual(tok_resp.status_code, status.HTTP_200_OK)
+            token = tok_resp.data["token"]
+            self.assertTrue(token)
+
+            # The token authenticates an otherwise-gated request.
+            auth_client = APIClient()
+            auth_client.credentials(HTTP_AUTHORIZATION=f"Token {token}")
+            allowed = auth_client.get("/api/analytics/")
+            self.assertEqual(allowed.status_code, status.HTTP_200_OK)
 
     def test_agent_chat_and_hitl_endpoints(self):
         # 1. Chat endpoint invocation
