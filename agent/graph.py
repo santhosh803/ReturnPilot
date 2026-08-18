@@ -56,8 +56,8 @@ def _build_checkpointer():
 
     if backend == "postgres":
         try:
-            from psycopg import Connection
             from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
             from langgraph.checkpoint.postgres import PostgresSaver
 
             conn_string = os.getenv("LANGGRAPH_POSTGRES_URL") or os.getenv("DATABASE_URL")
@@ -65,21 +65,29 @@ def _build_checkpointer():
                 raise RuntimeError(
                     "postgres checkpointer requires LANGGRAPH_POSTGRES_URL or DATABASE_URL"
                 )
-            # Open a long-lived connection directly (the same configuration
-            # PostgresSaver.from_conn_string uses internally). We deliberately do NOT
-            # use from_conn_string here: it is a context manager, and holding only its
-            # yielded saver lets the manager be garbage-collected, which closes the
-            # connection out from under us. A directly-owned connection lives for the
-            # process lifetime.
-            conn = Connection.connect(
-                conn_string,
-                autocommit=True,
-                prepare_threshold=0,
-                row_factory=dict_row,
+            # Use a connection POOL, not a single long-lived connection. Serverless
+            # Postgres (e.g. Neon) drops idle connections, and a lone connection does
+            # not reconnect — the agent would then fail on the next invoke with
+            # "SSL connection has been closed unexpectedly". The pool validates each
+            # connection before handing it out (check=check_connection) and transparently
+            # replaces dead ones, so the checkpointer survives idle periods and restarts.
+            pool = ConnectionPool(
+                conninfo=conn_string,
+                min_size=1,
+                max_size=int(os.getenv("LANGGRAPH_POSTGRES_POOL_MAX", "10")),
+                max_idle=float(os.getenv("LANGGRAPH_POSTGRES_MAX_IDLE", "120")),
+                kwargs={
+                    "autocommit": True,
+                    "prepare_threshold": 0,
+                    "row_factory": dict_row,
+                },
+                check=ConnectionPool.check_connection,
+                open=False,
             )
-            saver = PostgresSaver(conn)
+            pool.open(wait=True)
+            saver = PostgresSaver(pool)
             saver.setup()
-            logger.info("LangGraph checkpointer: postgres")
+            logger.info("LangGraph checkpointer: postgres (pooled)")
             return saver
         except Exception as e:
             logger.warning(

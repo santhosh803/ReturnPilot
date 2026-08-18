@@ -472,8 +472,9 @@ class AgentApproveView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Force process refund overriding the HITL gate
-        decision_code = "override_force_approve" if decision == "approved" else "rejected"
+        # Force process refund overriding the HITL gate — for both approve and reject,
+        # since this endpoint IS the merchant's HITL resolution.
+        decision_code = "override_force_approve" if decision == "approved" else "override_force_reject"
         result = process_refund(
             return_id=return_id,
             decision=decision_code,

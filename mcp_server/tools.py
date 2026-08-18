@@ -452,10 +452,18 @@ def process_refund(
     is_high_value = amount > 100.0
     is_high_risk = customer.risk_score > 0.75
 
-    # Check for HITL gate trigger
-    if (is_high_value or is_high_risk) and decision.lower() != "override_force_approve":
+    # Check for HITL gate trigger. Explicit merchant overrides — both approve and
+    # reject — bypass the gate; only an un-overridden decision on a high-value/high-risk
+    # return is held for review. (Without the reject override, a merchant rejecting a
+    # high-value return would just re-trigger HITL and the return would never move.)
+    if (is_high_value or is_high_risk) and decision.lower() not in (
+        "override_force_approve",
+        "override_force_reject",
+    ):
         ret.status = ReturnRequest.Status.AWAITING_APPROVAL
-        ret.save()
+        # Scope to status so a concurrent async task (classify/exchange) can't
+        # overwrite this HITL transition, and vice versa.
+        ret.save(update_fields=["status"])
         hitl_reason_parts = []
         if is_high_value:
             hitl_reason_parts.append(
@@ -481,7 +489,7 @@ def process_refund(
     if decision_clean in ["approved", "override_force_approve"]:
         ret.status = ReturnRequest.Status.APPROVED
         ret.resolved_at = timezone.now()
-        ret.save()
+        ret.save(update_fields=["status", "resolved_at"])
         RefundLedger.objects.update_or_create(
             return_request=ret,
             defaults={
@@ -503,7 +511,7 @@ def process_refund(
     else:
         ret.status = ReturnRequest.Status.REJECTED
         ret.resolved_at = timezone.now()
-        ret.save()
+        ret.save(update_fields=["status", "resolved_at"])
         RefundLedger.objects.update_or_create(
             return_request=ret,
             defaults={

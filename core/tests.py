@@ -289,6 +289,50 @@ class CoreModelAndAPITests(TestCase):
             self.assertEqual(resp_ok.status_code, status.HTTP_201_CREATED)
             self.assertTrue(Order.objects.filter(order_id="ORD-SECURED-0001").exists())
 
+    def test_classify_task_does_not_clobber_concurrent_status_change(self):
+        """Regression: the async classify task must not overwrite a status transition
+        (e.g. HITL awaiting_approval) that occurs while its LLM call is in flight.
+
+        Reproduces the lost-update race: the task reads the return (pending), and a
+        concurrent process_refund flips it to awaiting_approval during the LLM call; a
+        full-row save() would clobber that back to pending. With update_fields the task
+        only writes reason_classified, so the status survives.
+        """
+        from unittest.mock import patch
+        from core import tasks as core_tasks
+
+        ret = ReturnRequest.objects.create(
+            return_id="RET-RACE-0001",
+            order=self.order,
+            reason_text="the item is defective and stopped working",
+            status=ReturnRequest.Status.PENDING,
+            refund_amount=Decimal("150.00"),
+        )
+        ret.items.add(self.order_item)
+
+        class _FakeLLM:
+            def invoke(self, prompt):
+                # Simulate a concurrent HITL transition landing mid-LLM-call.
+                ReturnRequest.objects.filter(pk=ret.pk).update(
+                    status=ReturnRequest.Status.AWAITING_APPROVAL
+                )
+
+                class _Resp:
+                    content = (
+                        '{"classification": "defective", "confidence": 0.97, '
+                        '"category_distribution": {"defective": 0.97}}'
+                    )
+
+                return _Resp()
+
+        with patch.object(core_tasks, "_get_vertex_llm", return_value=_FakeLLM()):
+            core_tasks.classify_return_reason_task(ret.id)
+
+        ret.refresh_from_db()
+        self.assertEqual(ret.reason_classified, "defective")
+        # The concurrent awaiting_approval transition must NOT be clobbered.
+        self.assertEqual(ret.status, ReturnRequest.Status.AWAITING_APPROVAL)
+
     def test_webhook_accepts_valid_hmac_signature(self):
         """A correct base64 HMAC-SHA256 of the raw body must authenticate; a wrong one is 401."""
         import os
@@ -356,6 +400,36 @@ class CoreModelAndAPITests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(resp.data.get("success"))
         self.assertIn("not found", resp.data.get("error", "").lower())
+
+    def test_agent_approve_can_reject_high_value_return(self):
+        """Rejecting a high-value/high-risk return via the approve endpoint must actually
+        reject it, not re-trigger the HITL gate and leave it awaiting_approval."""
+        high_value_return = ReturnRequest.objects.create(
+            return_id="RET-HIGHVAL-0001",
+            order=self.order,
+            reason_text="Changed my mind on the expensive item",
+            reason_classified=ReturnRequest.Reason.CHANGED_MIND,
+            status=ReturnRequest.Status.AWAITING_APPROVAL,
+            refund_amount=Decimal("189.98"),  # > $100 HITL threshold
+        )
+        high_value_return.items.add(self.order_item)
+
+        resp = self.client.post(
+            "/api/agent/approve/",
+            data={"return_id": "RET-HIGHVAL-0001", "decision": "rejected"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(resp.data["success"])
+        self.assertEqual(resp.data["result"]["status"], "rejected")
+        self.assertFalse(resp.data["result"].get("hitl_triggered"))
+
+        high_value_return.refresh_from_db()
+        self.assertEqual(high_value_return.status, ReturnRequest.Status.REJECTED)
+        self.assertTrue(hasattr(high_value_return, "refund"))
+        self.assertEqual(
+            high_value_return.refund.decision, RefundLedger.Decision.REJECTED
+        )
 
     def test_check_return_eligibility_rejects_final_sale_and_hygiene(self):
         """Policies whose conditions include final_sale/hygiene_seal_broken markers must block returns."""

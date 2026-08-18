@@ -98,8 +98,14 @@ def classify_return_reason_task(return_request_id: int):
             confidence = 0.70
         dist = {classification: confidence, "other": round(1.0 - confidence, 2)}
 
+    # Save ONLY the field this task owns. A full-row save() would write back the
+    # whole (stale) object read at the top of the task — and because this task holds
+    # that object across a multi-second LLM call, a concurrent status change (e.g.
+    # process_refund flipping the return to awaiting_approval for HITL) would be
+    # clobbered. update_fields scopes the write so async enrichment can't overwrite
+    # the HITL status.
     return_request.reason_classified = classification
-    return_request.save()
+    return_request.save(update_fields=["reason_classified"])
 
     # Update customer return metrics and risk score
     customer = return_request.order.customer
@@ -112,7 +118,7 @@ def classify_return_reason_task(return_request_id: int):
     return_ratio = (total_returns / total_orders) if total_orders > 0 else 0.5
     base_risk = min(1.0, return_ratio * 0.8 + (0.1 if total_returns > 3 else 0.0))
     customer.risk_score = round(base_risk, 2)
-    customer.save()
+    customer.save(update_fields=["return_count", "risk_score"])
 
     logger.info(
         f"[AI TASK] Classified return {return_request.return_id} as '{classification}' (confidence: {confidence:.2f})"
@@ -208,8 +214,10 @@ def generate_exchange_recommendation_task(return_request_id: int):
             + "\n\nIncentive: Free express exchange shipping + 10% store credit bonus."
         )
 
+    # Scope the write to this task's field only (see classify task note) so it can't
+    # overwrite a concurrent status change made while the LLM call was in flight.
     return_request.exchange_recommendation = recommendation_text
-    return_request.save()
+    return_request.save(update_fields=["exchange_recommendation"])
 
     logger.info(
         f"[AI TASK] Generated exchange recommendations for return {return_request.return_id}"
