@@ -4,6 +4,14 @@
 
 ---
 
+## Demo
+
+![ReturnPilot — natural-language return processing with a human-in-the-loop approval gate](docs/demo.gif)
+
+*A single natural-language request drives the agent to look up the order, check policy eligibility, screen for return abuse, initiate the return, and gate the high-value refund for merchant approval — then surfaces an AI-generated exchange recommendation.*
+
+---
+
 ## Architecture Overview
 
 ```mermaid

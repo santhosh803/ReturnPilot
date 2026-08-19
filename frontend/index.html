@@ -4,7 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>ReturnPilot</title>
+    <script>
+      // Apply the persisted theme before first paint to avoid a flash.
+      // Dark is the default; a stored "light" adds the .light class.
+      (function () {
+        try {
+          var t = localStorage.getItem("theme") || "dark";
+          if (t === "light") document.documentElement.classList.add("light");
+          document.documentElement.style.colorScheme = t;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

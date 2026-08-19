@@ -25,6 +25,28 @@ import { getAnalytics } from "../api/client";
 
 const COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
 
+// Render the return count centered on each donut segment.
+function renderReasonCount({ cx, cy, midAngle, innerRadius, outerRadius, value }) {
+  if (!value) return null;
+  const RADIAN = Math.PI / 180;
+  const radius = innerRadius + (outerRadius - innerRadius) / 2;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="#ffffff"
+      textAnchor="middle"
+      dominantBaseline="central"
+      fontSize={12}
+      fontWeight={700}
+    >
+      {value}
+    </text>
+  );
+}
+
 export default function Analytics() {
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -160,6 +182,8 @@ export default function Analytics() {
                   outerRadius={90}
                   paddingAngle={5}
                   dataKey="value"
+                  label={renderReasonCount}
+                  labelLine={false}
                 >
                   {reasonData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

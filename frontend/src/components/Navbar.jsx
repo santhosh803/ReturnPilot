@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Bot, BarChart2, Inbox, Sparkles } from "lucide-react";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Navbar() {
   const location = useLocation();
@@ -18,7 +19,7 @@ export default function Navbar() {
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
             <Sparkles className="w-4 h-4" />
           </div>
-          <span className="font-bold text-base tracking-tight text-white group-hover:text-indigo-300 transition-colors">
+          <span className="font-bold text-base tracking-tight text-slate-100 group-hover:text-indigo-300 transition-colors">
             ReturnPilot
           </span>
         </Link>
@@ -50,6 +51,7 @@ export default function Navbar() {
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse" />
           MCP Server Connected
         </span>
+        <ThemeToggle />
       </div>
     </nav>
   );

@@ -7,7 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Sparkles,
-  RefreshCw,
+  Plus,
   Clock,
   Shield,
   Layers,
@@ -134,7 +134,7 @@ export default function ChatInterface() {
             className="p-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-xs flex items-center space-x-1 border border-indigo-500/30 transition-all cursor-pointer"
             title="Start new conversation"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" />
             <span>New</span>
           </button>
         </div>
@@ -316,7 +316,7 @@ export default function ChatInterface() {
                       {isUser ? (
                         <div className="whitespace-pre-wrap">{msg.content}</div>
                       ) : (
-                        <div className="space-y-2 [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_li]:marker:text-indigo-400 [&_strong]:font-semibold [&_strong]:text-white [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_code]:bg-slate-800 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-indigo-300 [&_code]:text-xs [&_a]:text-indigo-400 [&_a]:underline">
+                        <div className="space-y-2 [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_li]:marker:text-indigo-400 [&_strong]:font-semibold [&_strong]:text-slate-100 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_code]:bg-slate-800 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-indigo-300 [&_code]:text-xs [&_a]:text-indigo-400 [&_a]:underline">
                           <ReactMarkdown>{msg.content || ""}</ReactMarkdown>
                         </div>
                       )}

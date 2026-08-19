@@ -7,6 +7,72 @@
   }
 }
 
+/*
+  Theming — dark is the default (Tailwind's base `slate` scale already reads as a
+  dark UI). Light mode remaps the `slate` scale under `html.light`; because every
+  Tailwind v4 color utility resolves to `var(--color-slate-*)`, remapping these
+  variables flips backgrounds, borders, and text app-wide (opacity variants too).
+  Accent colors (indigo/emerald/rose/…) are intentionally left untouched.
+  The scale is inverted so surfaces stay layered: app bg is light grey, cards are
+  white (card lighter than bg, mirroring the dark theme), text goes dark.
+*/
+html.light {
+  --color-slate-950: #eef2f7; /* app background   */
+  --color-slate-900: #ffffff; /* cards / panels   */
+  --color-slate-800: #e2e8f0; /* borders, fills   */
+  --color-slate-700: #cbd5e1; /* hover borders    */
+  --color-slate-600: #94a3b8;
+  --color-slate-500: #64748b; /* muted icons/text */
+  --color-slate-400: #52617a; /* secondary text   */
+  --color-slate-300: #334155;
+  --color-slate-200: #1e293b;
+  --color-slate-100: #0f172a; /* primary text     */
+  --color-slate-50: #020617;
+
+  /*
+    Accent text shades. The UI uses the 300/400 accent shades only as text/icons
+    (backgrounds/borders use 500/600/950), and those light shades wash out on light
+    tints. Darken 300 -> 700 and 400 -> 600 so accent labels, tabs, the Approve/
+    Reject buttons, the AI-recommendation block, and the status/risk badges stay
+    legible. Solid accent surfaces (hover states, gradients) use 500/600 and are
+    intentionally left vivid.
+  */
+  --color-indigo-300: #4338ca;
+  --color-indigo-400: #4f46e5;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #047857; /* green reads light; use 700 for AA on white/tints */
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
+  --color-amber-300: #b45309;
+  --color-amber-400: #b45309; /* amber reads light; use 700 */
+  --color-orange-300: #c2410c;
+  --color-orange-400: #c2410c; /* orange reads light; use 700 */
+  --color-purple-300: #7e22ce;
+  --color-purple-400: #9333ea;
+}
+
+/*
+  View Transitions — circular "ripple" reveal for the theme toggle. Disable the
+  default cross-fade so only the clip-path animation (driven from the toggle in
+  ThemeToggle.jsx) is visible, and keep the incoming theme snapshot on top.
+*/
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*) {
+    animation: none !important;
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
