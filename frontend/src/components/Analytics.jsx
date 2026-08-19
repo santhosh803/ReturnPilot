@@ -19,6 +19,7 @@ import {
   YAxis,
   Tooltip,
   Legend,
+  LabelList,
   ResponsiveContainer,
 } from "recharts";
 import { getAnalytics } from "../api/client";
@@ -184,6 +185,7 @@ export default function Analytics() {
                   dataKey="value"
                   label={renderReasonCount}
                   labelLine={false}
+                  isAnimationActive={false}
                 >
                   {reasonData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -216,7 +218,15 @@ export default function Analytics() {
                 <Tooltip
                   contentStyle={{ backgroundColor: "#0f172a", borderColor: "#334155", borderRadius: "8px", fontSize: "12px" }}
                 />
-                <Bar dataKey="count" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="count" fill="#6366f1" radius={[6, 6, 0, 0]} isAnimationActive={false}>
+                  <LabelList
+                    dataKey="count"
+                    position="top"
+                    fill="var(--color-slate-200)"
+                    fontSize={11}
+                    fontWeight={700}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
