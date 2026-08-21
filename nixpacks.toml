@@ -1,0 +1,25 @@
+# Railway / Nixpacks build config.
+#
+# The default Python provider does not install Node, so the React frontend
+# never gets built and Django's serve_spa falls back to the placeholder
+# landing page. This config installs Node alongside Python, builds the
+# frontend into frontend/dist, and runs collectstatic so Whitenoise can
+# serve the hashed assets in production.
+
+providers = ["python"]
+
+[phases.setup]
+nixPkgs = ["python311", "nodejs_20"]
+
+[phases.install]
+cmds = [
+  "pip install --upgrade pip",
+  "pip install -r requirements.txt",
+  "cd frontend && npm ci",
+]
+
+[phases.build]
+cmds = [
+  "cd frontend && npm run build",
+  "python manage.py collectstatic --noinput",
+]
